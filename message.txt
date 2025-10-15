@@ -1,0 +1,137 @@
+import discord
+from discord.ext import commands
+from discord.ui import View, Button
+import asyncio
+
+class EmbedBuilder(View):
+    def __init__(self, user: discord.User):
+        super().__init__(timeout=600)  # 10 minutes
+        self.user = user
+        self.embed = discord.Embed(
+            title="Embed Builder Preview",
+            description="Use the buttons below to edit the embed.",
+            color=discord.Color.blurple()
+        )
+        self.message: discord.Message | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Only the command author can use this.", ephemeral=True)
+            return False
+        return True
+
+    async def wait_for_input(self, interaction: discord.Interaction, prompt: str) -> str | None:
+        await interaction.response.send_message(prompt, ephemeral=True)
+        try:
+            msg = await interaction.client.wait_for(
+                "message",
+                check=lambda m: m.author.id == self.user.id and m.channel == interaction.channel,
+                timeout=300
+            )
+            return msg.content
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⌛ Time's up!", ephemeral=True)
+            return None
+
+    async def update_preview(self):
+        if self.message:
+            await self.message.edit(embed=self.embed)
+
+    # --- Buttons ---
+    @discord.ui.button(label="Title", style=discord.ButtonStyle.primary)
+    async def set_title(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **title**:")
+        if content:
+            self.embed.title = content
+            await self.update_preview()
+            await interaction.followup.send("✅ Title set!", ephemeral=True)
+
+    @discord.ui.button(label="Description", style=discord.ButtonStyle.primary)
+    async def set_description(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **description**:")
+        if content:
+            self.embed.description = content
+            await self.update_preview()
+            await interaction.followup.send("✅ Description set!", ephemeral=True)
+
+    @discord.ui.button(label="Add Field", style=discord.ButtonStyle.success)
+    async def add_field(self, interaction: discord.Interaction, button: Button):
+        name = await self.wait_for_input(interaction, "Send the **field name**:")
+        if not name:
+            return
+        value = await self.wait_for_input(interaction, "Send the **field value**:")
+        if not value:
+            return
+        self.embed.add_field(name=name, value=value, inline=False)
+        await self.update_preview()
+        await interaction.followup.send("✅ Field added!", ephemeral=True)
+
+    @discord.ui.button(label="Footer", style=discord.ButtonStyle.secondary)
+    async def set_footer(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **footer text**:")
+        if content:
+            self.embed.set_footer(text=content)
+            await self.update_preview()
+            await interaction.followup.send("✅ Footer set!", ephemeral=True)
+
+    @discord.ui.button(label="Color", style=discord.ButtonStyle.secondary)
+    async def set_color(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send a hex color (e.g., FF0000):")
+        if content:
+            try:
+                self.embed.color = discord.Color(int(content, 16))
+                await self.update_preview()
+                await interaction.followup.send("✅ Color set!", ephemeral=True)
+            except ValueError:
+                await interaction.followup.send("❌ Invalid hex color.", ephemeral=True)
+
+    @discord.ui.button(label="Author", style=discord.ButtonStyle.secondary)
+    async def set_author(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **author name**:")
+        if content:
+            self.embed.set_author(name=content)
+            await self.update_preview()
+            await interaction.followup.send("✅ Author set!", ephemeral=True)
+
+    @discord.ui.button(label="Thumbnail", style=discord.ButtonStyle.secondary)
+    async def set_thumbnail(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **thumbnail URL**:")
+        if content:
+            self.embed.set_thumbnail(url=content)
+            await self.update_preview()
+            await interaction.followup.send("✅ Thumbnail set!", ephemeral=True)
+
+    @discord.ui.button(label="Image", style=discord.ButtonStyle.secondary)
+    async def set_image(self, interaction: discord.Interaction, button: Button):
+        content = await self.wait_for_input(interaction, "Send the **image URL**:")
+        if content:
+            self.embed.set_image(url=content)
+            await self.update_preview()
+            await interaction.followup.send("✅ Image set!", ephemeral=True)
+
+    @discord.ui.button(label="Send Embed", style=discord.ButtonStyle.danger)
+    async def send_embed(self, interaction: discord.Interaction, button: Button):
+        if not (self.embed.title or self.embed.description or self.embed.fields):
+            return await interaction.response.send_message(
+                "❌ Cannot send empty embed! Add title, description, or a field first.", ephemeral=True
+            )
+        await interaction.response.send_message("✅ Embed sent!", ephemeral=True)
+        await interaction.channel.send(embed=self.embed)
+        self.stop()
+
+
+class EmbedCommands(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(name="embed")
+    async def embed(self, ctx, subcommand=None):
+        if subcommand != "create":
+            return await ctx.send("Use `.embed create` to start the embed builder.")
+        view = EmbedBuilder(ctx.author)
+        msg = await ctx.send(embed=view.embed, view=view)
+        view.message = msg
+
+
+async def setup(bot):
+    await bot.add_cog(EmbedCommands(bot))
